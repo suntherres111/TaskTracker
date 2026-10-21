@@ -1,0 +1,60 @@
+# ---- .NET build outputs ----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]64/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+publish/
+*.nupkg
+*.snupkg
+TestResults/
+coverage*.json
+coverage*.xml
+*.coverage
+
+# ---- Visual Studio / Rider ----
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.idea/
+*.DotSettings.user
+
+# ---- VS Code (keep shared settings) ----
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ---- OS files ----
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# ---- Local secrets / environment ----
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+appsettings.Local.json
+secrets.json
+*.pfx
+*.pem
+*.key
+
+# ---- Local databases / emulators ----
+*.mdf
+*.ldf
+*.db
+*.sqlite
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/

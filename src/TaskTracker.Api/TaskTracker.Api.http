@@ -1,0 +1,46 @@
+# Requests for the TaskTracker API (Visual Studio / VS Code REST Client).
+# 1. Start the API:  dotnet run --project src/TaskTracker.Api --launch-profile https
+# 2. Set @password to your demo user's password locally. Do not commit a real password.
+# 3. Run "login", copy accessToken into @token, then run the other requests.
+
+@host = https://localhost:7061
+@username = demo
+@password = <your-demo-password>
+@token = <paste-accessToken-here>
+
+### Login
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "username": "{{username}}", "password": "{{password}}" }
+
+### Current user (requires token)
+GET {{host}}/api/auth/me
+Authorization: Bearer {{token}}
+
+### List projects (anonymous)
+GET {{host}}/api/projects
+
+### Tasks for project 1 (anonymous)
+GET {{host}}/api/projects/1/tasks
+
+### Create a task (requires token)
+POST {{host}}/api/projects/1/tasks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "Write release notes", "description": "Draft for v1", "dueDateUtc": "2026-12-01T00:00:00+08:00", "status": "Todo" }
+
+### Update task status (requires token)
+PATCH {{host}}/api/tasks/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "InProgress" }
+
+### Mutation without a token -> 401
+POST {{host}}/api/projects
+Content-Type: application/json
+
+{ "name": "Should be rejected" }

@@ -1,0 +1,400 @@
+@page "/projects/{ProjectId:int}/tasks"
+@implements IDisposable
+@inject ProjectsApiClient ProjectsApi
+@inject TasksApiClient TasksApi
+
+<PageTitle>@(project?.Name ?? "Tasks")</PageTitle>
+
+<a href="projects" class="d-inline-block mb-3 text-decoration-none">&larr; All projects</a>
+
+@if (isLoading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted" role="status" data-testid="tasks-loading">
+        <div class="spinner-border spinner-border-sm" aria-hidden="true"></div>
+        <span>Loading tasks…</span>
+    </div>
+}
+else if (projectNotFound)
+{
+    <div class="alert alert-warning" role="alert" data-testid="project-not-found">
+        <h1 class="h5">Project not found</h1>
+        <p class="mb-2">There is no project with ID @ProjectId. It may have been deleted.</p>
+        <a href="projects" class="btn btn-sm btn-outline-secondary">Back to projects</a>
+    </div>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert" data-testid="tasks-error">
+        <span>@loadError</span>
+        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="LoadAsync">Try again</button>
+    </div>
+}
+else if (project is not null && tasks is not null)
+{
+    <div class="mb-4">
+        <h1 class="mb-1">@project.Name</h1>
+        @if (!string.IsNullOrWhiteSpace(project.Description))
+        {
+            <p class="text-muted mb-1">@project.Description</p>
+        }
+        <p class="small text-muted mb-0">
+            @tasks.Count @(tasks.Count == 1 ? "task" : "tasks") · Dates are shown in your time zone (@TimeZoneLabel).
+        </p>
+    </div>
+
+    <div class="row g-4">
+        <section class="col-lg-8" aria-label="Tasks">
+            @if (tasks.Count == 0)
+            {
+                <div class="text-center text-muted border rounded p-5" data-testid="tasks-empty">
+                    <p class="fs-5 mb-1">No tasks yet</p>
+                    <p class="mb-0">Add the first task using the form.</p>
+                </div>
+            }
+            else
+            {
+                <ul class="list-group shadow-sm" data-testid="tasks-list">
+                    @foreach (var task in tasks)
+                    {
+                        <li class="list-group-item py-3" data-testid="task-@task.Id">
+                            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                                <div class="flex-grow-1" style="min-width: 12rem;">
+                                    <h2 class="h6 mb-1">@task.Title</h2>
+                                    @if (!string.IsNullOrWhiteSpace(task.Description))
+                                    {
+                                        <p class="mb-1 small">@task.Description</p>
+                                    }
+                                    <div class="small text-muted">
+                                        @if (task.DueDateUtc is DateTime due)
+                                        {
+                                            <span title="@FormatUtc(due)">Due @FormatLocalDate(due)</span>
+                                        }
+                                        else
+                                        {
+                                            <span>No due date</span>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge @StatusBadgeClass(task.Status)">@StatusLabel(task.Status)</span>
+                                    <select @key="StatusSelectKey(task)"
+                                            class="form-select form-select-sm w-auto"
+                                            aria-label="Status for @task.Title"
+                                            value="@task.Status"
+                                            disabled="@savingTaskIds.Contains(task.Id)"
+                                            @onchange="e => ChangeStatusAsync(task, e)">
+                                        @foreach (var status in Statuses)
+                                        {
+                                            <option value="@status">@StatusLabel(status)</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            @if (statusErrors.TryGetValue(task.Id, out var statusError))
+                            {
+                                <div class="text-danger small mt-2" role="alert">@statusError</div>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <section class="col-lg-4" aria-label="Add task">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Add task</h2>
+
+                    <EditForm EditContext="editContext" OnValidSubmit="CreateTaskAsync">
+                        <DataAnnotationsValidator />
+
+                        <div class="mb-3">
+                            <label for="task-title" class="form-label">Title</label>
+                            <InputText id="task-title" class="form-control" @bind-Value="newTask.Title" />
+                            <ValidationMessage For="() => newTask.Title" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="task-description" class="form-label">Description <span class="text-muted small">(optional)</span></label>
+                            <InputTextArea id="task-description" class="form-control" rows="3" @bind-Value="newTask.Description" />
+                            <ValidationMessage For="() => newTask.Description" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="task-due" class="form-label">Due date <span class="text-muted small">(optional)</span></label>
+                            <InputDate id="task-due" class="form-control" @bind-Value="newTask.DueDate" />
+                            <div class="form-text">Saved as the start of that day in your time zone (@TimeZoneLabel).</div>
+                            <ValidationMessage For="() => newTask.DueDate" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="task-status" class="form-label">Status</label>
+                            <InputSelect id="task-status" class="form-select" @bind-Value="newTask.Status">
+                                @foreach (var status in Statuses)
+                                {
+                                    <option value="@status">@StatusLabel(status)</option>
+                                }
+                            </InputSelect>
+                            <ValidationMessage For="() => newTask.Status" />
+                        </div>
+
+                        @if (createError is not null)
+                        {
+                            <div class="alert alert-danger py-2" role="alert" data-testid="create-error">
+                                @createError
+                                @if (otherFieldErrors.Count > 0)
+                                {
+                                    <ul class="mb-0 mt-1 small">
+                                        @foreach (var message in otherFieldErrors)
+                                        {
+                                            <li>@message</li>
+                                        }
+                                    </ul>
+                                }
+                            </div>
+                        }
+                        @if (createSuccess is not null)
+                        {
+                            <div class="alert alert-success py-2" role="status">@createSuccess</div>
+                        }
+
+                        <button type="submit" class="btn btn-primary w-100" disabled="@isCreating">
+                            @(isCreating ? "Adding…" : "Add task")
+                        </button>
+                    </EditForm>
+                </div>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private static readonly TaskItemStatus[] Statuses = Enum.GetValues<TaskItemStatus>();
+
+    private readonly CancellationTokenSource cts = new();
+    private readonly HashSet<int> savingTaskIds = new();
+    private readonly Dictionary<int, string> statusErrors = new();
+    private readonly List<string> otherFieldErrors = new();
+
+    private ProjectSummary? project;
+    private List<TaskSummary>? tasks;
+    private bool isLoading;
+    private bool projectNotFound;
+    private string? loadError;
+
+    private NewTaskModel newTask = new();
+    private EditContext editContext = default!;
+    private ValidationMessageStore serverErrors = default!;
+    private bool isCreating;
+    private string? createError;
+    private string? createSuccess;
+
+    // Bumped when a status change fails, to rebuild the dropdown so it shows the saved value again.
+    private int statusSelectVersion;
+
+    [Parameter]
+    public int ProjectId { get; set; }
+
+    protected override void OnInitialized() => ResetForm();
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        projectNotFound = false;
+        loadError = null;
+
+        try
+        {
+            project = await ProjectsApi.GetProjectAsync(ProjectId, cts.Token);
+            tasks = project is null ? null : await TasksApi.GetTasksAsync(ProjectId, cts.Token);
+            projectNotFound = project is null || tasks is null;
+        }
+        catch (HttpRequestException ex)
+        {
+            loadError = ApiErrors.Describe(ex.StatusCode, "load the tasks");
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            // Navigated away while loading.
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CreateTaskAsync()
+    {
+        isCreating = true;
+        createError = null;
+        createSuccess = null;
+        ClearServerErrors();
+
+        var result = await TasksApi.CreateTaskAsync(
+            ProjectId,
+            newTask.Title.Trim(),
+            string.IsNullOrWhiteSpace(newTask.Description) ? null : newTask.Description.Trim(),
+            ToStartOfLocalDay(newTask.DueDate),
+            newTask.Status,
+            cts.Token);
+
+        isCreating = false;
+
+        if (result.Succeeded)
+        {
+            tasks?.Add(result.Value!);
+            createSuccess = $"Added \"{result.Value!.Title}\".";
+            ResetForm();
+            return;
+        }
+
+        createError = result.ErrorMessage;
+        ShowServerErrors(result.FieldErrors);
+    }
+
+    private async Task ChangeStatusAsync(TaskSummary task, ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<TaskItemStatus>(e.Value?.ToString(), out var newStatus) || newStatus == task.Status)
+        {
+            return;
+        }
+
+        savingTaskIds.Add(task.Id);
+        statusErrors.Remove(task.Id);
+
+        var result = await TasksApi.UpdateStatusAsync(task.Id, newStatus, cts.Token);
+
+        savingTaskIds.Remove(task.Id);
+
+        if (result.Succeeded && tasks is not null)
+        {
+            var index = tasks.FindIndex(t => t.Id == task.Id);
+            if (index >= 0)
+            {
+                tasks[index] = result.Value!;
+            }
+        }
+        else
+        {
+            statusErrors[task.Id] = result.ErrorMessage ?? "Could not update the status.";
+            statusSelectVersion++;
+        }
+    }
+
+    private void ResetForm()
+    {
+        newTask = new NewTaskModel();
+        editContext = new EditContext(newTask);
+        serverErrors = new ValidationMessageStore(editContext);
+        editContext.OnFieldChanged += (_, args) =>
+        {
+            // A server error for a field goes away once the user edits that field.
+            serverErrors.Clear(args.FieldIdentifier);
+            editContext.NotifyValidationStateChanged();
+        };
+        otherFieldErrors.Clear();
+    }
+
+    private void ClearServerErrors()
+    {
+        serverErrors.Clear();
+        otherFieldErrors.Clear();
+        editContext.NotifyValidationStateChanged();
+    }
+
+    /// <summary>Maps API field names (e.g. "Title", "$.status", "dueDateUtc") onto the form's fields.</summary>
+    private void ShowServerErrors(IReadOnlyDictionary<string, string[]> fieldErrors)
+    {
+        foreach (var (key, messages) in fieldErrors)
+        {
+            var field = key.TrimStart('$', '.').ToLowerInvariant() switch
+            {
+                "title" => nameof(NewTaskModel.Title),
+                "description" => nameof(NewTaskModel.Description),
+                "duedateutc" => nameof(NewTaskModel.DueDate),
+                "status" => nameof(NewTaskModel.Status),
+                _ => null
+            };
+
+            if (field is null)
+            {
+                otherFieldErrors.AddRange(messages);
+            }
+            else
+            {
+                serverErrors.Add(editContext.Field(field), messages);
+            }
+        }
+
+        editContext.NotifyValidationStateChanged();
+    }
+
+    /// <summary>
+    /// A date picked in the form means "that day where the user is". It is sent as midnight local time
+    /// with an explicit UTC offset (e.g. 2026-12-01T00:00:00+08:00), so the API stores an unambiguous instant.
+    /// </summary>
+    private static DateTimeOffset? ToStartOfLocalDay(DateOnly? date)
+    {
+        if (date is null)
+        {
+            return null;
+        }
+
+        var localMidnight = date.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        return new DateTimeOffset(localMidnight, TimeZoneInfo.Local.GetUtcOffset(localMidnight));
+    }
+
+    private static string FormatLocalDate(DateTime utc) => utc.ToLocalTime().ToString("d MMM yyyy");
+
+    private static string FormatUtc(DateTime utc) => utc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'");
+
+    private static string TimeZoneLabel
+    {
+        get
+        {
+            var offset = TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow);
+            var sign = offset < TimeSpan.Zero ? "-" : "+";
+            return $"UTC{sign}{offset.Duration():hh\\:mm}";
+        }
+    }
+
+    private string StatusSelectKey(TaskSummary task) => $"{task.Id}-{task.Status}-{statusSelectVersion}";
+
+    private static string StatusLabel(TaskItemStatus status) => status switch
+    {
+        TaskItemStatus.Todo => "To do",
+        TaskItemStatus.InProgress => "In progress",
+        TaskItemStatus.Done => "Done",
+        _ => status.ToString()
+    };
+
+    private static string StatusBadgeClass(TaskItemStatus status) => status switch
+    {
+        TaskItemStatus.Done => "text-bg-success",
+        TaskItemStatus.InProgress => "text-bg-primary",
+        _ => "text-bg-secondary"
+    };
+
+    public void Dispose()
+    {
+        cts.Cancel();
+        cts.Dispose();
+    }
+
+    private sealed class NewTaskModel
+    {
+        [Required(ErrorMessage = "Title is required.")]
+        [StringLength(200, ErrorMessage = "Title must be 200 characters or fewer.")]
+        public string Title { get; set; } = string.Empty;
+
+        [StringLength(2000, ErrorMessage = "Description must be 2000 characters or fewer.")]
+        public string? Description { get; set; }
+
+        public DateOnly? DueDate { get; set; }
+
+        public TaskItemStatus Status { get; set; } = TaskItemStatus.Todo;
+    }
+}

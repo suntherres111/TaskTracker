@@ -1,0 +1,27 @@
+@page "/"
+@inject AuthService Auth
+
+<PageTitle>Home</PageTitle>
+
+<h1>TaskTracker</h1>
+
+<AuthorizeView>
+    <p>You are signed in as <strong>@context.User.Identity?.Name</strong>.</p>
+</AuthorizeView>
+
+<p><a href="projects" class="btn btn-primary">View projects</a></p>
+
+<p class="text-muted small" data-testid="api-session">
+    API session check:
+    @(apiUser is null ? "checking…" : apiUser == string.Empty ? "the API did not accept the token." : $"token accepted by the API for user '{apiUser}'.")
+</p>
+
+@code {
+    // null = loading, "" = rejected, otherwise the username reported by the protected /api/auth/me endpoint.
+    private string? apiUser;
+
+    protected override async Task OnInitializedAsync()
+    {
+        apiUser = await Auth.GetCurrentUserAsync() ?? string.Empty;
+    }
+}
