@@ -20,8 +20,9 @@ notification integration designed for Azure Service Bus.
 6. [Authentication](#authentication)
 7. [API reference and Swagger](#api-reference-and-swagger)
 8. [External integration: notifications](#external-integration-notifications)
-9. [Configuration reference](#configuration-reference)
-10. [Status: completed, limitations, deferred](#status-completed-limitations-deferred)
+9. [Tests](#tests)
+10. [Configuration reference](#configuration-reference)
+11. [Status: completed, limitations, deferred](#status-completed-limitations-deferred)
 
 ---
 
@@ -36,6 +37,8 @@ src/
   TaskTracker.Api/              Controllers, DTOs, application services, Swagger, DI startup.
                                 References Infrastructure + Domain.
   TaskTracker.Web/              Blazor WebAssembly UI. No project references; talks to the API over HTTP.
+tests/
+  TaskTracker.Api.Tests/        xUnit tests for TaskService (SQLite in-memory database).
 docs/
   integration-design.md         Azure Service Bus production design for notifications.
 ```
@@ -318,6 +321,24 @@ and an Azure Function consumer with a dead-letter queue. Only Infrastructure gai
 
 Full design, configuration sample and role assignment: **[docs/integration-design.md](docs/integration-design.md)**.
 
+## Tests
+
+```powershell
+dotnet test
+```
+
+`tests/TaskTracker.Api.Tests` covers task creation and the notification contract:
+
+| Test | Verifies |
+|---|---|
+| `CreateAsync_ValidRequest_PublishesTaskCreatedNotification` | A created task publishes exactly one `task.created` notification with the saved task's IDs, title, status and due date |
+| `CreateAsync_WhenPublisherFails_TaskIsStillSavedAndReturned` | A throwing publisher does not fail the call; the task is committed (re-read through a fresh context) |
+| `CreateAsync_UnknownProject_ReturnsNullAndDoesNotPublish` | An unknown project returns `null` (mapped to 404) with no notification and no new row |
+
+Each test gets its own **SQLite in-memory** database, built from the real EF Core model including
+the seed data, and a fake `INotificationPublisher` that records calls or throws. No SQL Server,
+Azure SQL or User Secrets are needed, and tests can run in any order.
+
 ## Configuration reference
 
 | Setting | Where | Secret? | Purpose |
@@ -359,6 +380,7 @@ at the deployed API. Secrets go in App Service settings or Key Vault references,
 - [x] External integration: `INotificationPublisher` + working local publisher + Azure Service Bus / Managed Identity design
 - [x] UTC-consistent dates end to end; explicit timezone handling in the UI
 - [x] No secrets in the repository
+- [x] Unit tests for `TaskService` (xUnit, SQLite in-memory, fake notification publisher)
 
 ### Known limitations
 
@@ -374,7 +396,7 @@ at the deployed API. Secrets go in App Service settings or Key Vault references,
 
 - Role-based authorization (Admin vs User), e.g. a `role` claim and `[Authorize(Roles = "Admin")]` on deletes
 - Health checks for SQL and the notification dependency (`/health`)
-- Unit tests (e.g. `TaskService` with a test database, `TasksApiClient` with a fake handler)
+- Broader test coverage (project service, controllers via `WebApplicationFactory`, `TasksApiClient` with a fake handler)
 - Rate limiting on `/api/auth/login` (built-in ASP.NET Core rate limiter)
 - Transactional outbox and the Service Bus publisher
 - BFF + HttpOnly cookie for the web app; CI pipeline; infrastructure as code (Bicep)
