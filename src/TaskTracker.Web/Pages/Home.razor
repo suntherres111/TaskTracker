@@ -6,7 +6,17 @@
 <h1>TaskTracker</h1>
 
 <AuthorizeView>
-    <p>You are signed in as <strong>@context.User.Identity?.Name</strong>.</p>
+    <p>You are signed in as <strong>@context.User.Identity?.Name</strong> (@context.User.FindFirst("role")?.Value).</p>
+    <p class="small text-muted">
+        @if (context.User.IsInRole(AppRoles.Admin))
+        {
+            <text>As an Admin you can manage projects and tasks, including deleting tasks.</text>
+        }
+        else
+        {
+            <text>As a User you can view projects, add tasks and change their status. Deleting is limited to Admins.</text>
+        }
+    </p>
 </AuthorizeView>
 
 <p><a href="projects" class="btn btn-primary">View projects</a></p>

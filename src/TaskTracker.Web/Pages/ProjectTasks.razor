@@ -89,6 +89,22 @@ else if (project is not null && tasks is not null)
                                             <option value="@status">@StatusLabel(status)</option>
                                         }
                                     </select>
+                                    <AuthorizeView Roles="@AppRoles.Admin">
+                                        @if (confirmDeleteTaskId == task.Id)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-danger"
+                                                    disabled="@savingTaskIds.Contains(task.Id)"
+                                                    @onclick="() => DeleteTaskAsync(task)">Confirm delete</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                    @onclick="() => confirmDeleteTaskId = null">Cancel</button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                                    aria-label="Delete @task.Title"
+                                                    @onclick="() => confirmDeleteTaskId = task.Id">Delete</button>
+                                        }
+                                    </AuthorizeView>
                                 </div>
                             </div>
                             @if (statusErrors.TryGetValue(task.Id, out var statusError))
@@ -193,6 +209,9 @@ else if (project is not null && tasks is not null)
     // Bumped when a status change fails, to rebuild the dropdown so it shows the saved value again.
     private int statusSelectVersion;
 
+    // Task awaiting delete confirmation (Admin only; two-step instead of a browser dialog).
+    private int? confirmDeleteTaskId;
+
     [Parameter]
     public int ProjectId { get; set; }
 
@@ -281,6 +300,26 @@ else if (project is not null && tasks is not null)
         {
             statusErrors[task.Id] = result.ErrorMessage ?? "Could not update the status.";
             statusSelectVersion++;
+        }
+    }
+
+    private async Task DeleteTaskAsync(TaskSummary task)
+    {
+        savingTaskIds.Add(task.Id);
+        statusErrors.Remove(task.Id);
+
+        var error = await TasksApi.DeleteTaskAsync(task.Id, cts.Token);
+
+        savingTaskIds.Remove(task.Id);
+        confirmDeleteTaskId = null;
+
+        if (error is null)
+        {
+            tasks?.RemoveAll(t => t.Id == task.Id);
+        }
+        else
+        {
+            statusErrors[task.Id] = error;
         }
     }
 

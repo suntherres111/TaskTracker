@@ -6,7 +6,7 @@ A small Projects and Tasks tracker built as a senior full-stack take-home: an AS
 with EF Core and SQL Server, JWT authentication, a Blazor WebAssembly front end, and an external
 notification integration designed for Azure Service Bus.
 
-- **API:** projects and tasks CRUD, JWT-protected writes, Swagger UI
+- **API:** projects and tasks CRUD, JWT-protected writes, role-based permissions (Admin / User), Swagger UI
 - **Web:** login, project list, task list per project, add task, change task status
 - **Integration:** `INotificationPublisher`, with a working local implementation and a production design for Azure Service Bus using Managed Identity
 
@@ -152,20 +152,26 @@ Remove-Variable b
 
 Issuer, audience and token lifetime are non-secret and live in `src/TaskTracker.Api/appsettings.json`.
 
-### 4. Demo user
+### 4. Demo accounts (Admin and User)
 
-There is one demo account. Only a PBKDF2 hash of its password is stored.
+There is one demo account per role. The usernames are not secret and are set in
+`src/TaskTracker.Api/appsettings.json` (`admin` and `user`). Only a PBKDF2 **hash** of each
+password is stored, in User Secrets.
 
 ```powershell
-dotnet user-secrets set "DemoUser:Username" "demo" --project src/TaskTracker.Api
-
-# Prompts for the password (hidden), then prints a ready-made "dotnet user-secrets set" command. Run that command.
-dotnet run --project src/TaskTracker.Api --no-launch-profile -- --hash-password
+# Each command prompts for the password (hidden), then prints a ready-made
+# "dotnet user-secrets set" command. Run the printed command after each one.
+dotnet run --project src/TaskTracker.Api --no-launch-profile -- --hash-password Admin
+dotnet run --project src/TaskTracker.Api --no-launch-profile -- --hash-password User
 ```
 
-**Test user credentials:** username **`demo`**, plus the password you entered above. For a quick
-review, use `TaskTracker2026`. It is a throwaway value for local testing only and protects
-nothing real.
+**Test credentials.** For a quick review, use these throwaway values. They are for local testing
+only and protect nothing real:
+
+| Role | Username | Password |
+|---|---|---|
+| Admin | `admin` | `TaskTrackerAdmin2026` |
+| User | `user` | `TaskTrackerUser2026` |
 
 Check all four secrets are present (names only, values hidden):
 
@@ -173,7 +179,11 @@ Check all four secrets are present (names only, values hidden):
 dotnet user-secrets list --project src/TaskTracker.Api | ForEach-Object { ($_ -split ' = ')[0] }
 ```
 
-Expected: `ConnectionStrings:DefaultConnection`, `Jwt:SigningKey`, `DemoUser:Username`, `DemoUser:PasswordHash`.
+Expected: `ConnectionStrings:DefaultConnection`, `Jwt:SigningKey`, `DemoUsers:Admin:PasswordHash`, `DemoUsers:User:PasswordHash`.
+
+> Upgrading from the single-user version? The old `DemoUser:Username` and `DemoUser:PasswordHash`
+> secrets are no longer read. Remove them with `dotnet user-secrets remove "DemoUser:Username" --project src/TaskTracker.Api`
+> (and the same for `DemoUser:PasswordHash`).
 
 The API refuses to start, with a clear message, if any of them is missing.
 
@@ -208,7 +218,7 @@ dotnet run --project src/TaskTracker.Api --launch-profile https
 dotnet run --project src/TaskTracker.Web --launch-profile https
 ```
 
-Then open **https://localhost:7167**, sign in with the demo user, and go to **Projects**, then
+Then open **https://localhost:7167**, sign in as `admin` or `user`, and go to **Projects**, then
 choose a project to see its tasks. From there you can **add a task** or **change a task's status**.
 
 No emulator is needed. The notification integration runs locally as a logger (see below).
@@ -217,16 +227,34 @@ No emulator is needed. The notification integration runs locally as a logger (se
 
 ### API
 
-- `POST /api/auth/login` validates the demo credentials against the PBKDF2 hash and returns a JWT:
-  `{ accessToken, tokenType: "Bearer", expiresAtUtc }`. The 401 response is identical for an
-  unknown user and a wrong password, and the password is checked even when the username is wrong,
-  so response timing doesn't reveal valid usernames.
-- Tokens are HS256, 60 minutes, with `sub`, `name` and `jti` claims. Signature, issuer, audience
-  and lifetime are validated (30-second clock skew); only HS256 is accepted.
+- `POST /api/auth/login` validates the credentials against the PBKDF2 hash and returns a JWT:
+  `{ accessToken, tokenType: "Bearer", expiresAtUtc, role }`. The 401 response is identical for an
+  unknown user and a wrong password, and exactly one hash check runs either way (a dummy hash for
+  unknown usernames), so response timing doesn't reveal valid usernames.
+- Tokens are HS256, 60 minutes, with `sub`, `name`, `role` and `jti` claims. Signature, issuer,
+  audience and lifetime are validated (30-second clock skew); only HS256 is accepted.
 - **All writes (POST, PUT, PATCH, DELETE) require a valid token** (`[Authorize]` on the
   controllers). **Reads (GET) are anonymous** (`[AllowAnonymous]`). New endpoints are therefore
   protected unless they explicitly opt out.
-- `GET /api/auth/me` is protected; clients use it to confirm a token is still accepted.
+- `GET /api/auth/me` is protected and returns the username and role; clients use it to confirm a
+  token is still accepted.
+
+### Roles and permissions
+
+| Operation | Anonymous | User | Admin |
+|---|---|---|---|
+| Read projects and tasks (GET) | ✅ | ✅ | ✅ |
+| Create task, update task, change task status | 401 | ✅ | ✅ |
+| Delete task | 401 | **403** | ✅ |
+| Create, update or delete project | 401 | **403** | ✅ |
+
+- **401** means not signed in or invalid token. **403** means signed in, but the role isn't allowed.
+- Rules are two named policies in `TaskTracker.Infrastructure/Auth/AuthenticationSetup.cs`:
+  **AdminOnly** (Admin) and **TaskEditor** (Admin or User). Each controller action declares the
+  policy it needs, e.g. `[Authorize(Policy = AuthorizationPolicies.AdminOnly)]`.
+- The **API enforces every rule**. The Blazor app only adapts the UI: it shows the role in the
+  top bar, and shows the task **Delete** button to Admins only. A User who calls the API directly
+  still gets 403.
 
 ### Blazor client: where the token lives (and why)
 
@@ -266,15 +294,15 @@ HTTP client.
 | GET | `/api/auth/me` | JWT | 200, 401 |
 | GET | `/api/projects` | – | 200 (includes `taskCount`) |
 | GET | `/api/projects/{id}` | – | 200, 404 |
-| POST | `/api/projects` | JWT | 201 + `Location`, 400, 401 |
-| PUT | `/api/projects/{id}` | JWT | 200, 400, 401, 404 |
-| DELETE | `/api/projects/{id}` | JWT | 204, 401, 404, **409** if the project still has tasks |
+| POST | `/api/projects` | Admin | 201 + `Location`, 400, 401, 403 |
+| PUT | `/api/projects/{id}` | Admin | 200, 400, 401, 403, 404 |
+| DELETE | `/api/projects/{id}` | Admin | 204, 401, 403, 404, **409** if the project still has tasks |
 | GET | `/api/projects/{projectId}/tasks` | – | 200, 404 (project) |
 | GET | `/api/tasks/{id}` | – | 200, 404 |
-| POST | `/api/projects/{projectId}/tasks` | JWT | 201 + `Location`, 400, 401, 404 (project) |
-| PUT | `/api/tasks/{id}` | JWT | 200, 400, 401, 404 (title, description, due date) |
-| PATCH | `/api/tasks/{id}/status` | JWT | 200, 400, 401, 404 |
-| DELETE | `/api/tasks/{id}` | JWT | 204, 401, 404 |
+| POST | `/api/projects/{projectId}/tasks` | Admin, User | 201 + `Location`, 400, 401, 404 (project) |
+| PUT | `/api/tasks/{id}` | Admin, User | 200, 400, 401, 404 (title, description, due date) |
+| PATCH | `/api/tasks/{id}/status` | Admin, User | 200, 400, 401, 404 |
+| DELETE | `/api/tasks/{id}` | Admin | 204, 401, 403, 404 |
 
 Conventions:
 
@@ -329,7 +357,9 @@ Full design, configuration sample and role assignment: **[docs/integration-desig
 dotnet test
 ```
 
-`tests/TaskTracker.Api.Tests` covers task creation and the notification contract:
+`tests/TaskTracker.Api.Tests` has two groups of tests.
+
+**Task creation and notifications** (`TaskServiceCreateTests`, service level):
 
 | Test | Verifies |
 |---|---|
@@ -338,8 +368,24 @@ dotnet test
 | `CreateAsync_UnknownProject_ReturnsNullAndDoesNotPublish` | An unknown project returns `null` (mapped to 404) with no notification and no new row |
 
 Each test gets its own **SQLite in-memory** database, built from the real EF Core model including
-the seed data, and a fake `INotificationPublisher` that records calls or throws. No SQL Server,
-Azure SQL or User Secrets are needed, and tests can run in any order.
+the seed data, and a fake `INotificationPublisher` that records calls or throws.
+
+**Authorization** (`AuthorizationTests`, HTTP level via `WebApplicationFactory`): the real API
+pipeline (routing, JWT validation, policies, controllers) runs in memory against SQLite.
+
+| Test | Verifies |
+|---|---|
+| `Anonymous_Mutation_Returns401` (7 cases) | Every POST, PUT, PATCH and DELETE without a token returns 401 |
+| `Anonymous_Reads_AreAllowed` | Project and task GETs work without a token |
+| `User_AdminOnlyOperation_Returns403` (4 cases) | A User gets 403 for project create, update and delete, and for task delete |
+| `User_CanCreateUpdateAndChangeStatusOfTasks` | A User can create a task, update it and change its status |
+| `Admin_CanManageProjectsAndDeleteTasks` | An Admin can create, update and delete a project, and delete a task |
+| `Login_IssuesTokenWithRole` (2 cases) | Admin and User tokens carry the right `role`, as reported by `/api/auth/me` |
+| `Login_WrongPassword_Returns401` | Bad credentials are rejected |
+
+The authorization tests run in a "Testing" environment with throwaway accounts and a random
+signing key. No SQL Server, Azure SQL, User Secrets or real credentials are needed, and tests can
+run in any order.
 
 GitHub Actions (`.github/workflows/dotnet.yml`) runs the same restore, build (warnings as errors)
 and test steps on every push and pull request to `main`. It needs no secrets.
@@ -350,14 +396,13 @@ and test steps on every push and pull request to `main`. It needs no secrets.
 |---|---|---|---|
 | `ConnectionStrings:DefaultConnection` | API, User Secrets | **Yes** | SQL Server / Azure SQL |
 | `Jwt:SigningKey` | API, User Secrets | **Yes** | HMAC key, at least 32 bytes |
-| `DemoUser:Username` | API, User Secrets | No* | Demo login name |
-| `DemoUser:PasswordHash` | API, User Secrets | Yes (hash) | PBKDF2 hash from `--hash-password` |
+| `DemoUsers:Admin:Username`, `DemoUsers:User:Username` | `TaskTracker.Api/appsettings.json` | No | Demo login names (`admin`, `user`) |
+| `DemoUsers:Admin:PasswordHash`, `DemoUsers:User:PasswordHash` | API, User Secrets | Yes (hash) | PBKDF2 hashes from `--hash-password Admin` / `User` |
 | `Jwt:Issuer`, `Jwt:Audience`, `Jwt:ExpiryMinutes` | `TaskTracker.Api/appsettings.json` | No | Token validation and lifetime |
 | `Cors:AllowedOrigins` | `TaskTracker.Api/appsettings.Development.json` | No | Origins allowed to call the API from a browser |
 | `ApiBaseUrl` | `TaskTracker.Web/wwwroot/appsettings.json` | No | Where the Blazor app sends API calls |
 | `Notifications:SimulateFailure` | command line, Development only | No | Demo of publisher-failure handling |
 
-\* Kept in User Secrets so the whole demo identity is configured in one place.
 
 **Development defaults:**
 
@@ -380,17 +425,18 @@ at the deployed API. Secrets go in App Service settings or Key Vault references,
 - [x] CRUD API for projects and tasks, including task DELETE and a PATCH for status
 - [x] DTOs, async EF, validation, correct status codes (200/201/204/400/401/404/409)
 - [x] JWT authentication; all mutating endpoints protected
+- [x] Role-based authorization: Admin and User demo accounts, policy per action, 401 vs 403
 - [x] Blazor: login, protected pages, project list, tasks per project, add task, update status
 - [x] Token handling in dedicated client services (`AuthService`, `TokenAuthenticationStateProvider`, `BearerTokenHandler`)
 - [x] External integration: `INotificationPublisher` + working local publisher + Azure Service Bus / Managed Identity design
 - [x] UTC-consistent dates end to end; explicit timezone handling in the UI
 - [x] No secrets in the repository
-- [x] Unit tests for `TaskService` (xUnit, SQLite in-memory, fake notification publisher)
+- [x] Automated tests: `TaskService` unit tests and HTTP-level authorization tests (xUnit, SQLite in-memory)
 
 ### Known limitations
 
 - **Refreshing the page signs you out** (in-memory token; see [Authentication](#authentication)).
-- **Single demo user** from configuration; no user store, registration or password reset.
+- **Two demo accounts** (one per role) from configuration; no user store, registration or password reset.
 - **Best-effort notifications:** a failed publish is logged, not retried (the outbox is designed, not built).
 - **Due dates are date-only in the UI**, stored as the start of that day in the user's time zone.
   Seeded due dates are midnight UTC, so in time zones behind UTC they display as the previous day.
@@ -399,9 +445,8 @@ at the deployed API. Secrets go in App Service settings or Key Vault references,
 
 ### Deferred enhancements (good-to-have list and next steps)
 
-- Role-based authorization (Admin vs User), e.g. a `role` claim and `[Authorize(Roles = "Admin")]` on deletes
 - Health checks for SQL and the notification dependency (`/health`)
-- Broader test coverage (project service, controllers via `WebApplicationFactory`, `TasksApiClient` with a fake handler)
+- Broader test coverage (validation and 404/409 paths over HTTP, `ProjectService`, Blazor `TasksApiClient` with a fake handler)
 - Rate limiting on `/api/auth/login` (built-in ASP.NET Core rate limiter)
 - Transactional outbox and the Service Bus publisher
 - BFF + HttpOnly cookie for the web app; CI pipeline; infrastructure as code (Bicep)

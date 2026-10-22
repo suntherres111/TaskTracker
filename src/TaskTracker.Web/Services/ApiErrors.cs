@@ -11,7 +11,7 @@ public static class ApiErrors
     {
         null => "Cannot reach the TaskTracker API. Check that it is running, then try again.",
         HttpStatusCode.Unauthorized => "Your session has expired. Please sign in again.",
-        HttpStatusCode.Forbidden => "You are not allowed to do that.",
+        HttpStatusCode.Forbidden => "Your role does not allow this action.",
         _ => $"The API could not {action} ({(int)status}). Please try again."
     };
 }

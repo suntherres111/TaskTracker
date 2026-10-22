@@ -11,7 +11,10 @@
         <div class="top-row px-4">
             <AuthorizeView>
                 <Authorized>
-                    <span class="me-3">Signed in as <strong>@context.User.Identity?.Name</strong></span>
+                    <span class="me-3">
+                        Signed in as <strong>@context.User.Identity?.Name</strong>
+                        <span class="badge rounded-pill text-bg-light border ms-1">@context.User.FindFirst("role")?.Value</span>
+                    </span>
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="Logout">Log out</button>
                 </Authorized>
                 <NotAuthorized>

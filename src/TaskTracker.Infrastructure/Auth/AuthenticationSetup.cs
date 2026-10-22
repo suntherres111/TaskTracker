@@ -9,24 +9,24 @@ namespace TaskTracker.Infrastructure.Auth;
 public static class AuthenticationSetup
 {
     /// <summary>
-    /// Registers JWT Bearer authentication, authorization and <see cref="AuthService"/>.
+    /// Registers JWT Bearer authentication, role-based authorization policies and <see cref="AuthService"/>.
     /// Fails fast at startup with a clear message if required settings are missing.
     /// </summary>
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
-        var demoUser = configuration.GetSection(DemoUserOptions.SectionName).Get<DemoUserOptions>() ?? new DemoUserOptions();
-        Validate(jwt, demoUser);
+        var demoUsers = ReadDemoUsers(configuration);
+        Validate(jwt, demoUsers);
 
         services.AddSingleton(jwt);
-        services.AddSingleton(demoUser);
+        services.AddSingleton<IReadOnlyList<DemoUserOptions>>(demoUsers);
         services.AddSingleton<AuthService>();
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
-                // Keep standard JWT claim names ("sub", "name") instead of mapping them to long URIs.
+                // Keep standard JWT claim names ("sub", "name", "role") instead of mapping them to long URIs.
                 options.MapInboundClaims = false;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
@@ -40,15 +40,38 @@ public static class AuthenticationSetup
                     ValidateLifetime = true,
                     RequireExpirationTime = true,
                     ClockSkew = TimeSpan.FromSeconds(30),
-                    NameClaimType = "name"
+                    NameClaimType = "name",
+                    RoleClaimType = "role"
                 };
             });
 
-        services.AddAuthorization();
+        // Authentication failures stay 401; an authenticated user without the required role gets 403.
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy(AuthorizationPolicies.AdminOnly, policy => policy
+                .RequireAuthenticatedUser()
+                .RequireRole(AppRoles.Admin));
+
+            options.AddPolicy(AuthorizationPolicies.TaskEditor, policy => policy
+                .RequireAuthenticatedUser()
+                .RequireRole(AppRoles.Admin, AppRoles.User));
+        });
+
         return services;
     }
 
-    private static void Validate(JwtOptions jwt, DemoUserOptions demoUser)
+    /// <summary>Reads "DemoUsers:{Role}:Username/PasswordHash" entries; the key becomes the role.</summary>
+    private static List<DemoUserOptions> ReadDemoUsers(IConfiguration configuration) =>
+        configuration.GetSection(DemoUserOptions.SectionName).GetChildren()
+            .Select(section =>
+            {
+                var user = section.Get<DemoUserOptions>() ?? new DemoUserOptions();
+                user.Role = AppRoles.Normalize(section.Key) ?? section.Key;
+                return user;
+            })
+            .ToList();
+
+    private static void Validate(JwtOptions jwt, IReadOnlyList<DemoUserOptions> demoUsers)
     {
         var errors = new List<string>();
 
@@ -57,8 +80,23 @@ public static class AuthenticationSetup
         if (jwt.ExpiryMinutes is < 1 or > 1440) errors.Add("Jwt:ExpiryMinutes must be between 1 and 1440.");
         if (Encoding.UTF8.GetByteCount(jwt.SigningKey ?? string.Empty) < JwtOptions.MinSigningKeyBytes)
             errors.Add($"Jwt:SigningKey must be set and at least {JwtOptions.MinSigningKeyBytes} bytes long.");
-        if (string.IsNullOrWhiteSpace(demoUser.Username)) errors.Add("DemoUser:Username is required.");
-        if (string.IsNullOrWhiteSpace(demoUser.PasswordHash)) errors.Add("DemoUser:PasswordHash is required.");
+        foreach (var user in demoUsers.Where(u => AppRoles.Normalize(u.Role) is null))
+            errors.Add($"DemoUsers:{user.Role} is not a known role (expected: {string.Join(", ", AppRoles.All)}).");
+
+        foreach (var role in AppRoles.All)
+        {
+            var user = demoUsers.FirstOrDefault(u => u.Role == role);
+            if (string.IsNullOrWhiteSpace(user?.Username)) errors.Add($"DemoUsers:{role}:Username is required.");
+            if (string.IsNullOrWhiteSpace(user?.PasswordHash)) errors.Add($"DemoUsers:{role}:PasswordHash is required.");
+        }
+
+        var duplicates = demoUsers
+            .Where(u => !string.IsNullOrWhiteSpace(u.Username))
+            .GroupBy(u => u.Username.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key);
+        foreach (var name in duplicates)
+            errors.Add($"Demo username '{name}' is used by more than one role.");
 
         if (errors.Count > 0)
         {

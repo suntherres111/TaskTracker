@@ -1,10 +1,11 @@
 # Requests for the TaskTracker API (Visual Studio / VS Code REST Client).
 # 1. Start the API:  dotnet run --project src/TaskTracker.Api --launch-profile https
-# 2. Set @password to your demo user's password locally. Do not commit a real password.
+# 2. Set @username/@password to a demo account ("admin" or "user") locally. Do not commit a real password.
 # 3. Run "login", copy accessToken into @token, then run the other requests.
+#    Roles: admin can do everything; user gets 403 on project changes and task deletes.
 
 @host = https://localhost:7061
-@username = demo
+@username = admin
 @password = <your-demo-password>
 @token = <paste-accessToken-here>
 
@@ -38,6 +39,10 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 { "status": "InProgress" }
+
+### Delete a task (Admin only; a "user" token gets 403)
+DELETE {{host}}/api/tasks/1
+Authorization: Bearer {{token}}
 
 ### Mutation without a token -> 401
 POST {{host}}/api/projects

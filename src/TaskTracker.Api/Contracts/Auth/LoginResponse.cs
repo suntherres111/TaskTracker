@@ -1,3 +1,3 @@
 namespace TaskTracker.Api.Contracts.Auth;
 
-public record LoginResponse(string AccessToken, string TokenType, DateTime ExpiresAtUtc);
+public record LoginResponse(string AccessToken, string TokenType, DateTime ExpiresAtUtc, string Role);

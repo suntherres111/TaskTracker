@@ -11,7 +11,7 @@ using TaskTracker.Infrastructure.Notifications;
 // Developer helper: generates the DemoUser password hash, then exits (see Tools/HashPasswordCommand.cs).
 if (args.Contains(HashPasswordCommand.Argument))
 {
-    HashPasswordCommand.Run();
+    HashPasswordCommand.Run(args);
     return;
 }
 
@@ -105,3 +105,8 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Makes the entry point visible to WebApplicationFactory<Program> in the integration tests.
+public partial class Program
+{
+}

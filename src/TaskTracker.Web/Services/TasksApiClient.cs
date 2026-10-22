@@ -48,6 +48,22 @@ public sealed class TasksApiClient
             "update the status", cancellationToken);
     }
 
+    /// <returns>Null on success (or if the task was already gone); otherwise a user-facing error message.</returns>
+    public async Task<string?> DeleteTaskAsync(int taskId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await _http.DeleteAsync($"api/tasks/{taskId}", cancellationToken);
+            return response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound
+                ? null
+                : ApiErrors.Describe(response.StatusCode, "delete the task");
+        }
+        catch (HttpRequestException)
+        {
+            return ApiErrors.Describe(null, "delete the task");
+        }
+    }
+
     private static async Task<WriteResult<TaskSummary>> SendAsync(
         Func<Task<HttpResponseMessage>> send, string action, CancellationToken cancellationToken)
     {

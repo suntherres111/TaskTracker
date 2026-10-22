@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TaskTracker.Api.Contracts.Tasks;
 using TaskTracker.Api.Services;
+using TaskTracker.Infrastructure.Auth;
 
 namespace TaskTracker.Api.Controllers;
 
@@ -9,7 +10,8 @@ namespace TaskTracker.Api.Controllers;
 [ApiController]
 [Route("api")]
 [Produces("application/json")]
-// Mutations require a valid JWT; read endpoints opt out with [AllowAnonymous].
+// Mutations require a valid JWT (401 otherwise) and a permitted role (403 otherwise):
+// Admin or User may create/update tasks; only Admin may delete. Reads opt out with [AllowAnonymous].
 [Authorize]
 public class TasksController : ControllerBase
 {
@@ -41,7 +43,9 @@ public class TasksController : ControllerBase
     }
 
     [HttpPost("projects/{projectId:int}/tasks")]
+    [Authorize(Policy = AuthorizationPolicies.TaskEditor)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(TaskResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -54,7 +58,9 @@ public class TasksController : ControllerBase
     }
 
     [HttpPut("tasks/{id:int}")]
+    [Authorize(Policy = AuthorizationPolicies.TaskEditor)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(TaskResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -65,7 +71,9 @@ public class TasksController : ControllerBase
     }
 
     [HttpPatch("tasks/{id:int}/status")]
+    [Authorize(Policy = AuthorizationPolicies.TaskEditor)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(TaskResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -77,7 +85,9 @@ public class TasksController : ControllerBase
     }
 
     [HttpDelete("tasks/{id:int}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)

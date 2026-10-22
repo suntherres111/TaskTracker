@@ -34,16 +34,16 @@ public class AuthController : ControllerBase
                 detail: "The username or password is incorrect.");
         }
 
-        return Ok(new LoginResponse(token.Token, "Bearer", token.ExpiresAtUtc));
+        return Ok(new LoginResponse(token.Token, "Bearer", token.ExpiresAtUtc, token.Role));
     }
 
-    /// <summary>Returns the user the bearer token belongs to. Lets clients confirm their token is still valid.</summary>
+    /// <summary>Returns the user and role the bearer token belongs to. Lets clients confirm their token is still valid.</summary>
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType(typeof(CurrentUserResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public ActionResult<CurrentUserResponse> Me()
     {
-        return Ok(new CurrentUserResponse(User.Identity?.Name ?? string.Empty));
+        return Ok(new CurrentUserResponse(User.Identity?.Name ?? string.Empty, User.FindFirst("role")?.Value ?? string.Empty));
     }
 }

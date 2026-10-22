@@ -17,6 +17,8 @@
     </PackageReference>
     <!-- In-memory relational database for tests; same EF Core version as the app. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.32" />
+    <!-- In-memory test server for API authorization tests. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.32" />
   </ItemGroup>
 
   <ItemGroup>
