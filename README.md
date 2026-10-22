@@ -1,5 +1,7 @@
 # TaskTracker
 
+[![.NET build and test](https://github.com/suntherres111/TaskTracker/actions/workflows/dotnet.yml/badge.svg)](https://github.com/suntherres111/TaskTracker/actions/workflows/dotnet.yml)
+
 A small Projects and Tasks tracker built as a senior full-stack take-home: an ASP.NET Core 8 Web API
 with EF Core and SQL Server, JWT authentication, a Blazor WebAssembly front end, and an external
 notification integration designed for Azure Service Bus.
@@ -338,6 +340,9 @@ dotnet test
 Each test gets its own **SQLite in-memory** database, built from the real EF Core model including
 the seed data, and a fake `INotificationPublisher` that records calls or throws. No SQL Server,
 Azure SQL or User Secrets are needed, and tests can run in any order.
+
+GitHub Actions (`.github/workflows/dotnet.yml`) runs the same restore, build (warnings as errors)
+and test steps on every push and pull request to `main`. It needs no secrets.
 
 ## Configuration reference
 
