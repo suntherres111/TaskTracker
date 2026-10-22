@@ -159,7 +159,7 @@ dotnet run --project src/TaskTracker.Api --no-launch-profile -- --hash-password
 ```
 
 **Test user credentials:** username **`demo`**, plus the password you entered above. For a quick
-review, use `TaskTracker-Demo-2026`. It is a throwaway value for local testing only and protects
+review, use `TaskTracker2026`. It is a throwaway value for local testing only and protects
 nothing real.
 
 Check all four secrets are present (names only, values hidden):
